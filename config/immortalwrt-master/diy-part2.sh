@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 最終解決方案腳本 v52 - 專家指導版 (切換到 Shadowsocks-Rust + net-snmp修復)
+# 最終解決方案腳本 v54 - 釜底抽薪版 (徹底禁用SNMP)
 # 作者: The Architect & Manus AI (在您的專業指導下完成)
 #
 
@@ -13,6 +13,7 @@ log_success() { echo -e "[$(date +'%H:%M:%S')] \033[32m✅ $*\033[0m"; }
 
 log_info "===== 開始執行預編譯配置 ====="
 
+# ... [步驟 1 到 9 的內容與 v53 版本相同，此處省略] ...
 # -------------------- 步驟 1：基礎變量定義 --------------------
 log_info "步驟 1：定義基礎變量..."
 DTS_DIR="target/linux/ipq40xx/files/arch/arm/boot/dts"
@@ -312,7 +313,7 @@ for plugin in luci-app-partexp luci-app-advanced luci-app-poweroffdevice; do
   fi
 done
 
-# -------------------- 步驟 8：集成 PassWall2 (強制更新 ) --------------------
+# -------------------- 步驟 8：集成 PassWall2 (強制更新  ) --------------------
 log_info "步驟 8：集成 PassWall2 (強制更新)..."
 PW2_APP_DIR="$CUSTOM_PLUGINS_DIR/luci-app-passwall"
 PW2_PKG_DIR="$CUSTOM_PLUGINS_DIR/passwall-packages"
@@ -333,58 +334,25 @@ fi
 log_info "步驟 9：更新和安裝所有feeds..."
 ./scripts/feeds update -a
 ./scripts/feeds install -a
-log_success "Feeds操作完成 。"
-
-# -------------------- 步驟 9.5：修復 net-snmp 配置冲突 (方案 C: Kconfig 修改) --------------------
-log_info "步驟 9.5：修復 net-snmp 配置衝突問題 (方案 C)..."
-
-fix_netsnmp_config() {
-    log_info "正在修復 net-snmp 的 Config.in 文件 (方案 C)..."
-
-    SNMP_DIR="package/feeds/packages/net-snmp"
-    CONFIG_FILE="$SNMP_DIR/Config.in.wut"
-
-    if [ -f "$CONFIG_FILE" ]; then
-        cp "$CONFIG_FILE" "$CONFIG_FILE.bak"
-
-        cat > "$CONFIG_FILE" << 'EOF'
-menu "net-snmp Configuration"
-
-config SNMP_ENABLE_SSL
-    bool "Enable SSL support in net-snmp"
-    default n
-    help
-      Select this option to build net-snmp with SSL support (libnetsnmp-ssl + snmpd-ssl).
-      If disabled, the non-SSL version will be built (libnetsnmp-nossl + snmpd-nossl).
-
-endmenu
-EOF
-        log_success "已修復 Config.in.wut 文件，避免遞歸依賴"
-    else
-        log_info "Config.in.wut 文件不存在，跳過修復"
-    fi
-}
-
-
-# 執行修復
-fix_netsnmp_config
-
-# 清理可能有問題的臨時配置文件
-log_info "清理臨時配置文件..."
-rm -rf tmp/.config-*
-log_success "net-snmp配置衝突修復完成"
-
-# 禁用 SSL 版本，启用无 SSL 版本
-echo "# CONFIG_PACKAGE_libnetsnmp-ssl is not set" >> $CONFIG_FILE
-echo "CONFIG_PACKAGE_libnetsnmp-nossl=y" >> $CONFIG_FILE
-
-echo "# CONFIG_PACKAGE_snmpd-ssl is not set" >> $CONFIG_FILE
-echo "CONFIG_PACKAGE_snmpd-nossl=y" >> $CONFIG_FILE
+log_success "Feeds操作完成  。"
 
 # -------------------- 步驟 10：生成最終配置文件 --------------------
 log_info "步驟 10：正在啟用必要的軟件包並生成最終配置..."
 CONFIG_FILE=".config.custom"
 rm -f $CONFIG_FILE
+
+# --- 釜底抽薪：徹底禁用所有SNMP相關包以避免依賴衝突 ---
+log_info "正在禁用所有SNMP相關包以規避依賴衝突..."
+echo "# CONFIG_PACKAGE_net-snmp is not set" >> $CONFIG_FILE
+echo "# CONFIG_PACKAGE_snmpd is not set" >> $CONFIG_FILE
+echo "# CONFIG_PACKAGE_snmpd-nossl is not set" >> $CONFIG_FILE
+echo "# CONFIG_PACKAGE_snmpd-ssl is not set" >> $CONFIG_FILE
+echo "# CONFIG_PACKAGE_libnetsnmp is not set" >> $CONFIG_FILE
+echo "# CONFIG_PACKAGE_libnetsnmp-nossl is not set" >> $CONFIG_FILE
+echo "# CONFIG_PACKAGE_libnetsnmp-ssl is not set" >> $CONFIG_FILE
+echo "# CONFIG_PACKAGE_snmp-utils is not set" >> $CONFIG_FILE
+echo "# CONFIG_PACKAGE_snmp-utils-nossl is not set" >> $CONFIG_FILE
+echo "# CONFIG_PACKAGE_snmp-utils-ssl is not set" >> $CONFIG_FILE
 
 # --- 啟用 sirpdboy 插件 ---
 echo "CONFIG_PACKAGE_luci-app-partexp=y" >> $CONFIG_FILE
@@ -395,7 +363,7 @@ echo "CONFIG_PACKAGE_luci-app-poweroffdevice=y" >> $CONFIG_FILE
 log_info "啟用 PassWall2 並切換到 Shadowsocks-Rust 核心..."
 echo "CONFIG_PACKAGE_luci-app-passwall=y" >> $CONFIG_FILE
 echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y" >> $CONFIG_FILE
-# echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Server=y" >> $CONFIG_FILE # 如果您不需要在路由器上運行ss-server，可以禁用此項以節省空間
+# echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Server=y" >> $CONFIG_FILE
 echo "# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client is not set" >> $CONFIG_FILE
 echo "# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Server is not set" >> $CONFIG_FILE
 
