@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 最終解決方案腳本 v47 - 強制更新插件並修復依賴
+# 最終解決方案腳本 v48 - 動態路徑修復版
 # 作者: The Architect & Manus AI
 #
 
@@ -13,7 +13,7 @@ log_success() { echo -e "[$(date +'%H:%M:%S')] \033[32m✅ $*\033[0m"; }
 
 log_info "===== 開始執行預編譯配置 ====="
 
-# ... [步驟 1 到 7 的內容與之前相同，此處省略] ...
+# ... [步驟 1 到 9 的內容與 v47 版本相同，此處省略以保持簡潔] ...
 # -------------------- 步驟 1：基礎變量定義 --------------------
 log_info "步驟 1：定義基礎變量..."
 DTS_DIR="target/linux/ipq40xx/files/arch/arm/boot/dts"
@@ -301,8 +301,8 @@ sed -i "s|DISTRIB_REVISION='.*'|DISTRIB_REVISION='R$(date +%Y.%m.%d)'|g" package
 echo "DISTRIB_SOURCECODE='immortalwrt'" >>package/base-files/files/etc/openwrt_release
 log_success "版本號和源碼信息已更新。"
 
-# -------------------- 步驟 7：sirpdboy插件集成 --------------------
-log_info "步驟 7：集成 sirpdboy 插件..."
+# -------------------- 步驟 7：sirpdboy插件集成 (強制更新) --------------------
+log_info "步驟 7：集成 sirpdboy 插件 (強制更新)..."
 SIRPDBOY_REPO="https://github.com/sirpdboy"
 for plugin in luci-app-partexp luci-app-advanced luci-app-poweroffdevice; do
   rm -rf "$CUSTOM_PLUGINS_DIR/$plugin"
@@ -319,13 +319,11 @@ PW2_APP_DIR="$CUSTOM_PLUGINS_DIR/luci-app-passwall2"
 PW2_PKG_DIR="$CUSTOM_PLUGINS_DIR/passwall-packages"
 rm -rf "$PW2_APP_DIR" "$PW2_PKG_DIR"
 log_info "已刪除舊的 PassWall 倉庫，準備重新克隆..."
-
 if git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall2.git "$PW2_APP_DIR"; then
   log_success "PassWall2 克隆成功"
 else
   log_error "PassWall2 克隆失敗"
 fi
-
 if git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall-packages.git "$PW2_PKG_DIR"; then
   log_success "PassWall 公共依賴克隆成功"
 else
@@ -338,14 +336,14 @@ log_info "步驟 9：更新和安裝所有feeds..."
 ./scripts/feeds install -a
 log_success "Feeds操作完成 。"
 
-# -------------------- 步驟 10：應用 Kconfig 補丁修復遞歸依賴 --------------------
-log_info "步驟 10：應用 Kconfig 補丁修復 SNMP 遞歸依賴..."
-SNMP_KCONFIG_PATH="feeds/packages/net/snmpd/Config.in"
-if [ -f "$SNMP_KCONFIG_PATH" ]; then
-    sed -i 's/select PACKAGE_snmpd-nossl/select PACKAGE_snmpd-nossl if !SNMPD_WITH_OPENSSL/' "$SNMP_KCONFIG_PATH"
-    log_success "成功修補 $SNMP_KCONFIG_PATH"
+# -------------------- 步驟 10：應用 Kconfig 補丁修復遞歸依賴 (動態查找) --------------------
+log_info "步驟 10：應用 Kconfig 補丁修復 SNMP 遞歸依賴 (動態查找)..."
+SNMPD_KCONFIG_FILE=$(find feeds -type f -path "*/net/snmpd/Config.in")
+if [ -n "$SNMPD_KCONFIG_FILE" ]; then
+    sed -i 's/select PACKAGE_snmpd-nossl/select PACKAGE_snmpd-nossl if !SNMPD_WITH_OPENSSL/' "$SNMPD_KCONFIG_FILE"
+    log_success "成功修補 $SNMPD_KCONFIG_FILE"
 else
-    log_info "未找到 snmpd Kconfig 文件，跳過修補。"
+    log_info "未找到 snmpd 的 Kconfig 文件，跳過修補。"
 fi
 
 # -------------------- 步驟 11：生成最終配置文件 --------------------
