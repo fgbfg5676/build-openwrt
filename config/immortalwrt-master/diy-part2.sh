@@ -374,6 +374,13 @@ log_info "清理臨時配置文件..."
 rm -rf tmp/.config-*
 log_success "net-snmp配置衝突修復完成"
 
+# 禁用 SSL 版本，启用无 SSL 版本
+echo "# CONFIG_PACKAGE_libnetsnmp-ssl is not set" >> $CONFIG_FILE
+echo "CONFIG_PACKAGE_libnetsnmp-nossl=y" >> $CONFIG_FILE
+
+echo "# CONFIG_PACKAGE_snmpd-ssl is not set" >> $CONFIG_FILE
+echo "CONFIG_PACKAGE_snmpd-nossl=y" >> $CONFIG_FILE
+
 # -------------------- 步驟 10：生成最終配置文件 --------------------
 log_info "步驟 10：正在啟用必要的軟件包並生成最終配置..."
 CONFIG_FILE=".config.custom"
