@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 最终解决方案脚本 v60 - 从feeds源头彻底解决net-snmp递归依赖
+# 最终解决方案脚本 v61 - 从feeds源头彻底解决net-snmp递归依赖
 # 作者: The Architect & Manus AI
 #
 
@@ -333,10 +333,10 @@ fi
 
 # -------------------- 步骤 9：更新与安装Feeds --------------------
 log_info "步骤 9：更新和安装所有feeds..."
+# 物理删除 feeds.conf 中所有对 net-snmp 的引用，从根本上防止其被拉取
+log_info "从feeds.conf中彻底移除net-snmp..."
+sed -i '/net-snmp/d' feeds.conf
 ./scripts/feeds update -a
-# 从feeds.conf.default中注释掉net-snmp，防止它被安装
-log_info "从feeds.conf.default中移除net-snmp..."
-sed -i '/net-snmp/s/^#\?/#/' feeds.conf.default
 ./scripts/feeds install -a
 log_success "Feeds操作完成。"
 
