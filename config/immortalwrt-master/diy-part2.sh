@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 最终解决方案脚本 v56 - 修复net-snmp路径问题
+# 最终解决方案脚本 v57 - 彻底解决net-snmp递归依赖
 # 作者: The Architect & Manus AI
 #
 
@@ -19,8 +19,9 @@ DTS_DIR="target/linux/ipq40xx/files/arch/arm/boot/dts"
 DTS_FILE="$DTS_DIR/qcom-ipq4019-cm520-79f.dts"
 GENERIC_MK="target/linux/ipq40xx/image/generic.mk"
 CUSTOM_PLUGINS_DIR="package/custom"
+CONFIG_PACKAGE_IN="tmp/.config-package.in"  # Kconfig自动生成的依赖文件
 
-# 尝试多种可能的net-snmp路径（兼容不同OpenWrt版本）
+# 尝试多种可能的net-snmp路径
 POSSIBLE_SNMP_PATHS=(
     "package/feeds/packages/net-snmp"
     "package/network/services/net-snmp"
@@ -36,27 +37,11 @@ for path in "${POSSIBLE_SNMP_PATHS[@]}"; do
     fi
 done
 
-if [ -z "$SNMP_DIR" ]; then
-    log_info "未找到net-snmp包，跳过冲突修复（将在配置中直接禁用）"
-    SNMP_NOT_FOUND=1
-else
-    SNMP_MAKEFILE="$SNMP_DIR/Makefile"
-    # 处理不同版本的配置文件命名差异
-    if [ -f "$SNMP_DIR/Config.in" ]; then
-        SNMP_CONFIG="$SNMP_DIR/Config.in"
-    elif [ -f "$SNMP_DIR/config.in" ]; then
-        SNMP_CONFIG="$SNMP_DIR/config.in"
-    else
-        log_info "未找到net-snmp配置文件，使用备选方案"
-        SNMP_CONFIG_NOT_FOUND=1
-    fi
-fi
-
 log_success "基础变量定义完成。"
 
 # -------------------- 步骤 2：创建必要的目录 --------------------
 log_info "步骤 2：创建必要的目录..."
-mkdir -p "$DTS_DIR" "$CUSTOM_PLUGINS_DIR"
+mkdir -p "$DTS_DIR" "$CUSTOM_PLUGINS_DIR" "tmp"
 log_success "目录创建完成。"
 
 # -------------------- 步骤 3：写入DTS文件 --------------------
@@ -368,100 +353,66 @@ log_info "步骤 9：更新和安装所有feeds..."
 ./scripts/feeds install -a
 log_success "Feeds操作完成。"
 
-# -------------------- 步骤 10：修复net-snmp依赖冲突 --------------------
-log_info "步骤 10：处理net-snmp依赖问题..."
+# -------------------- 步骤 10：生成初始配置并清理递归依赖 --------------------
+log_info "步骤 10：生成初始配置并处理递归依赖..."
 
-# 只有找到完整的net-snmp文件结构才进行复杂修复
-if [ -z "$SNMP_NOT_FOUND" ] && [ -z "$SNMP_CONFIG_NOT_FOUND" ] && [ -f "$SNMP_MAKEFILE" ] && [ -f "$SNMP_CONFIG" ]; then
-    log_info "找到完整net-snmp包，执行二选一修复方案..."
+# 生成初始配置（允许冲突）
+log_info "生成初始配置文件..."
+rm -f .config
+make defconfig || true
+
+# 关键步骤：直接修改Kconfig生成的依赖文件，移除递归依赖规则
+if [ -f "$CONFIG_PACKAGE_IN" ]; then
+    log_info "正在清理net-snmp递归依赖规则..."
     
-    log_info "备份原始配置文件..."
-    cp "$SNMP_MAKEFILE" "$SNMP_MAKEFILE.bak" || log_error "备份Makefile失败"
-    cp "$SNMP_CONFIG" "$SNMP_CONFIG.bak" || log_error "备份Config.in失败"
-
-    # 修改Makefile依赖规则
-    log_info "修改Makefile依赖规则..."
-    sed -i '/^define Package\/snmpd-ssl$/,/^endef$/ {
-        /^  DEPENDS:=/c\  DEPENDS:=+libnetsnmp-ssl +SNMP_ENABLE_SSL:libopenssl
-    }' "$SNMP_MAKEFILE"
-
-    sed -i '/^define Package\/snmpd-nossl$/,/^endef$/ {
-        /^  DEPENDS:=/c\  DEPENDS:=+libnetsnmp-nossl +!SNMP_ENABLE_SSL:libopenssl
-    }' "$SNMP_MAKEFILE"
-
-    sed -i '/^define Package\/libnetsnmp-ssl$/,/^endef$/ {
-        /^  DEPENDS:=/c\  DEPENDS:=+SNMP_ENABLE_SSL:libopenssl +SNMP_ENABLE_SSL:libcrypto
-    }' "$SNMP_MAKEFILE"
-
-    sed -i '/^define Package\/libnetsnmp-nossl$/,/^endef$/ {
-        /^  DEPENDS:=/c\  DEPENDS:=+!SNMP_ENABLE_SSL:libopenssl +!SNMP_ENABLE_SSL:libcrypto
-    }' "$SNMP_MAKEFILE"
-
-    # 修改Config.in配置选项
-    log_info "修改Config.in配置选项..."
-    sed -i '1i config SNMP_ENABLE_SSL\n    bool "Enable SSL support in net-snmp"\n    default n\n    help\n      Choose whether to build net-snmp with SSL support.\n      If enabled, SSL versions of libraries and tools will be built.\n      If disabled, non-SSL versions will be used.\n' "$SNMP_CONFIG"
-
-    # 设置子包依赖关系
-    sed -i '/^config PACKAGE_snmpd-ssl$/,/^endmenu$/ {
-        /^    depends on /c\    depends on SNMP_ENABLE_SSL
-    }' "$SNMP_CONFIG"
-
-    sed -i '/^config PACKAGE_snmpd-nossl$/,/^endmenu$/ {
-        /^    depends on /c\    depends on !SNMP_ENABLE_SSL
-    }' "$SNMP_CONFIG"
-
-    sed -i '/^config PACKAGE_libnetsnmp-ssl$/,/^endmenu$/ {
-        /^    depends on /c\    depends on SNMP_ENABLE_SSL
-    }' "$SNMP_CONFIG"
-
-    sed -i '/^config PACKAGE_libnetsnmp-nossl$/,/^endmenu$/ {
-        /^    depends on /c\    depends on !SNMP_ENABLE_SSL
-    }' "$SNMP_CONFIG"
-
-    log_success "net-snmp依赖冲突修复完成"
-    SNMP_FIXED=1
+    # 移除libnetsnmp-ssl和libnetsnmp-nossl之间的相互依赖
+    sed -i '/PACKAGE_libnetsnmp-ssl/ {
+        /depends on.*PACKAGE_libnetsnmp-nossl/ s/PACKAGE_libnetsnmp-nossl/!PACKAGE_libnetsnmp-nossl/
+    }' "$CONFIG_PACKAGE_IN"
+    
+    sed -i '/PACKAGE_libnetsnmp-nossl/ {
+        /select.*PACKAGE_libnetsnmp-ssl/ d
+    }' "$CONFIG_PACKAGE_IN"
+    
+    # 移除snmpd-ssl和snmpd-nossl之间的相互依赖
+    sed -i '/PACKAGE_snmpd-ssl/ {
+        /depends on.*PACKAGE_snmpd-nossl/ s/PACKAGE_snmpd-nossl/!PACKAGE_snmpd-nossl/
+    }' "$CONFIG_PACKAGE_IN"
+    
+    sed -i '/PACKAGE_snmpd-nossl/ {
+        /select.*PACKAGE_snmpd-ssl/ d
+    }' "$CONFIG_PACKAGE_IN"
+    
+    log_success "递归依赖规则清理完成"
 else
-    log_info "未找到完整的net-snmp配置文件，使用简化方案：直接禁用冲突包"
-    SNMP_FIXED=0
+    log_warn "未找到Kconfig依赖文件，跳过规则清理"
 fi
 
-# -------------------- 步骤 11：生成最终配置文件 --------------------
+# -------------------- 步骤 11：生成最终配置并强制禁用冲突包 --------------------
 log_info "步骤 11：生成最终配置文件..."
 CONFIG_FILE=".config.custom"
 rm -f "$CONFIG_FILE"
 
-# 启用sirpdboy插件
+# 启用必要插件
 echo "CONFIG_PACKAGE_luci-app-partexp=y" >> "$CONFIG_FILE"
 echo "CONFIG_PACKAGE_luci-app-advanced=y" >> "$CONFIG_FILE"
 echo "CONFIG_PACKAGE_luci-app-poweroffdevice=y" >> "$CONFIG_FILE"
-
-# 启用PassWall2并切换到Shadowsocks-Rust核心
 echo "CONFIG_PACKAGE_luci-app-passwall=y" >> "$CONFIG_FILE"
 echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y" >> "$CONFIG_FILE"
 echo "# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client is not set" >> "$CONFIG_FILE"
 
-# 配置net-snmp（根据不同情况处理）
-if [ "$SNMP_FIXED" = "1" ]; then
-    # 如果已修复，配置为nossl版本
-    echo "CONFIG_SNMP_ENABLE_SSL=n" >> "$CONFIG_FILE"
-    echo "CONFIG_PACKAGE_libnetsnmp-nossl=y" >> "$CONFIG_FILE"
-    echo "CONFIG_PACKAGE_snmpd-nossl=y" >> "$CONFIG_FILE"
-    echo "# CONFIG_PACKAGE_libnetsnmp-ssl is not set" >> "$CONFIG_FILE"
-    echo "# CONFIG_PACKAGE_snmpd-ssl is not set" >> "$CONFIG_FILE"
-else
-    # 如果未找到或无法修复，直接禁用所有net-snmp相关包
-    echo "# 禁用所有net-snmp包以避免冲突" >> "$CONFIG_FILE"
-    echo "# CONFIG_PACKAGE_net-snmp is not set" >> "$CONFIG_FILE"
-    echo "# CONFIG_PACKAGE_snmpd is not set" >> "$CONFIG_FILE"
-    echo "# CONFIG_PACKAGE_libnetsnmp is not set" >> "$CONFIG_FILE"
-    echo "# CONFIG_PACKAGE_snmp-utils is not set" >> "$CONFIG_FILE"
-    echo "# CONFIG_PACKAGE_libnetsnmp-ssl is not set" >> "$CONFIG_FILE"
-    echo "# CONFIG_PACKAGE_libnetsnmp-nossl is not set" >> "$CONFIG_FILE"
-    echo "# CONFIG_PACKAGE_snmpd-ssl is not set" >> "$CONFIG_FILE"
-    echo "# CONFIG_PACKAGE_snmpd-nossl is not set" >> "$CONFIG_FILE"
-fi
+# 强制禁用所有net-snmp相关包（彻底切断依赖链）
+echo "# 彻底禁用net-snmp相关包以解决递归依赖" >> "$CONFIG_FILE"
+echo "# CONFIG_PACKAGE_net-snmp is not set" >> "$CONFIG_FILE"
+echo "# CONFIG_PACKAGE_snmpd is not set" >> "$CONFIG_FILE"
+echo "# CONFIG_PACKAGE_libnetsnmp is not set" >> "$CONFIG_FILE"
+echo "# CONFIG_PACKAGE_snmp-utils is not set" >> "$CONFIG_FILE"
+echo "# CONFIG_PACKAGE_libnetsnmp-ssl is not set" >> "$CONFIG_FILE"
+echo "# CONFIG_PACKAGE_libnetsnmp-nossl is not set" >> "$CONFIG_FILE"
+echo "# CONFIG_PACKAGE_snmpd-ssl is not set" >> "$CONFIG_FILE"
+echo "# CONFIG_PACKAGE_snmpd-nossl is not set" >> "$CONFIG_FILE"
 
-# 启用其他基础依赖
+# 基础依赖
 echo "CONFIG_PACKAGE_kmod-ubi=y" >> "$CONFIG_FILE"
 echo "CONFIG_PACKAGE_kmod-ubifs=y" >> "$CONFIG_FILE"
 echo "CONFIG_PACKAGE_trx=y" >> "$CONFIG_FILE"
@@ -471,11 +422,21 @@ echo "CONFIG_PACKAGE_ipq-wifi-mobipromo_cm520-79f=y" >> "$CONFIG_FILE"
 echo "CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y" >> "$CONFIG_FILE"
 echo "CONFIG_TARGET_ROOTFS_NO_CHECK_SIZE=y" >> "$CONFIG_FILE"
 
-# 合并配置并生成最终配置
+# 合并配置
 cat "$CONFIG_FILE" >> .config
 rm -f "$CONFIG_FILE"
 
-make defconfig
+# 使用silentoldconfig自动处理依赖，不交互
+log_info "自动处理配置依赖..."
+make silentoldconfig
+
+# 最后再次确保冲突包被禁用
+log_info "最终检查并禁用冲突包..."
+sed -i -e 's/^CONFIG_PACKAGE_libnetsnmp-ssl=y/# CONFIG_PACKAGE_libnetsnmp-ssl is not set/' \
+       -e 's/^CONFIG_PACKAGE_libnetsnmp-nossl=y/# CONFIG_PACKAGE_libnetsnmp-nossl is not set/' \
+       -e 's/^CONFIG_PACKAGE_snmpd-ssl=y/# CONFIG_PACKAGE_snmpd-ssl is not set/' \
+       -e 's/^CONFIG_PACKAGE_snmpd-nossl=y/# CONFIG_PACKAGE_snmpd-nossl is not set/' .config
+
 log_success "最终配置文件生成完成。"
 
 log_success "所有预编译步骤均已成功完成！准备开始编译..."
