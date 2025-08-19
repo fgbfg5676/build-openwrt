@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 最終解決方案腳本 v44 - 精簡版（集成 sirpdboy 插件 + PassWall2 + 通用設置）
+# 最終解決方案腳本 v46 - 根除遞歸依賴 (Kconfig 補丁)
 # 作者: The Architect & Manus AI
 #
 
@@ -13,6 +13,7 @@ log_success() { echo -e "[$(date +'%H:%M:%S')] \033[32m✅ $*\033[0m"; }
 
 log_info "===== 開始執行預編譯配置 ====="
 
+# ... [步驟 1 到 8 的內容與之前相同，此處省略] ...
 # -------------------- 步驟 1：基礎變量定義 --------------------
 log_info "步驟 1：定義基礎變量..."
 DTS_DIR="target/linux/ipq40xx/files/arch/arm/boot/dts"
@@ -346,8 +347,18 @@ log_info "步驟 9：更新和安裝所有feeds..."
 ./scripts/feeds install -a
 log_success "Feeds操作完成 。"
 
-# -------------------- 步驟 10：生成最終配置文件 --------------------
-log_info "步驟 10：正在啟用必要的軟件包並生成最終配置..."
+# -------------------- 步驟 10：應用 Kconfig 補丁修復遞歸依賴 --------------------
+log_info "步驟 10：應用 Kconfig 補丁修復 SNMP 遞歸依賴..."
+SNMP_KCONFIG_PATH="feeds/packages/net/snmpd/Config.in"
+if [ -f "$SNMP_KCONFIG_PATH" ]; then
+    sed -i 's/select PACKAGE_snmpd-nossl/select PACKAGE_snmpd-nossl if !SNMPD_WITH_OPENSSL/' "$SNMP_KCONFIG_PATH"
+    log_success "成功修補 $SNMP_KCONFIG_PATH"
+else
+    log_info "未找到 snmpd Kconfig 文件，跳過修補。"
+fi
+
+# -------------------- 步驟 11：生成最終配置文件 --------------------
+log_info "步驟 11：正在啟用必要的軟件包並生成最終配置..."
 
 CONFIG_FILE=".config.custom"
 rm -f $CONFIG_FILE
@@ -372,9 +383,6 @@ echo "CONFIG_TARGET_ROOTFS_NO_CHECK_SIZE=y" >> $CONFIG_FILE
 
 cat $CONFIG_FILE >> .config
 rm -f $CONFIG_FILE
-# 禁用冲突的 nossl 版本
-sed -i 's/^CONFIG_PACKAGE_libnetsnmp-nossl=y/# CONFIG_PACKAGE_libnetsnmp-nossl is not set/' .config
-sed -i 's/^CONFIG_PACKAGE_snmpd-nossl=y/# CONFIG_PACKAGE_snmpd-nossl is not set/' .config
 
 make defconfig
 log_success "最終配置文件生成完成。"
