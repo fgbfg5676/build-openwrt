@@ -335,39 +335,36 @@ log_info "步驟 9：更新和安裝所有feeds..."
 ./scripts/feeds install -a
 log_success "Feeds操作完成 。"
 
-# -------------------- 步驟 9.5：修復 net-snmp 配置冲突 --------------------
-log_info "步驟 9.5：修復 net-snmp 配置衝突問題..."
+# -------------------- 步驟 9.5：修復 net-snmp 配置冲突 (方案 C: Kconfig 修改) --------------------
+log_info "步驟 9.5：修復 net-snmp 配置衝突問題 (方案 C)..."
 
 fix_netsnmp_config() {
-    log_info "正在修復net-snmp的Config.in.wut配置文件..."
-    
-    # 檢查文件是否存在
-    if [ -f "package/feeds/packages/net-snmp/Config.in.wut" ]; then
-        # 備份原文件
-        cp package/feeds/packages/net-snmp/Config.in.wut package/feeds/packages/net-snmp/Config.in.wut.bak
-        
-        # 創建修復後的配置文件
-        cat > package/feeds/packages/net-snmp/Config.in.wut << 'EOF'
-menu "Configuration"
-        depends on PACKAGE_libnetsnmp-nossl || PACKAGE_libnetsnmp-ssl
+    log_info "正在修復 net-snmp 的 Config.in 文件 (方案 C)..."
 
-config SNMP_WITH_PERL_EMBEDDED
-        bool
-        default n
-        prompt "Enable embedded perl in the SNMP agent and snmptrapd."
+    SNMP_DIR="package/feeds/packages/net-snmp"
+    CONFIG_FILE="$SNMP_DIR/Config.in.wut"
 
-config SNMP_WITH_PERL_MODULES
-        bool
-        default n
-        prompt "Install perl modules"
+    if [ -f "$CONFIG_FILE" ]; then
+        cp "$CONFIG_FILE" "$CONFIG_FILE.bak"
+
+        cat > "$CONFIG_FILE" << 'EOF'
+menu "net-snmp Configuration"
+
+config SNMP_ENABLE_SSL
+    bool "Enable SSL support in net-snmp"
+    default n
+    help
+      Select this option to build net-snmp with SSL support (libnetsnmp-ssl + snmpd-ssl).
+      If disabled, the non-SSL version will be built (libnetsnmp-nossl + snmpd-nossl).
 
 endmenu
 EOF
-        log_success "已修復Config.in.wut文件"
+        log_success "已修復 Config.in.wut 文件，避免遞歸依賴"
     else
-        log_info "Config.in.wut文件不存在，跳過修復"
+        log_info "Config.in.wut 文件不存在，跳過修復"
     fi
 }
+
 
 # 執行修復
 fix_netsnmp_config
