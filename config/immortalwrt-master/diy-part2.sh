@@ -372,6 +372,9 @@ echo "CONFIG_TARGET_ROOTFS_NO_CHECK_SIZE=y" >> $CONFIG_FILE
 
 cat $CONFIG_FILE >> .config
 rm -f $CONFIG_FILE
+# 禁用冲突的 nossl 版本
+sed -i 's/^CONFIG_PACKAGE_libnetsnmp-nossl=y/# CONFIG_PACKAGE_libnetsnmp-nossl is not set/' .config
+sed -i 's/^CONFIG_PACKAGE_snmpd-nossl=y/# CONFIG_PACKAGE_snmpd-nossl is not set/' .config
 
 make defconfig
 log_success "最終配置文件生成完成。"
