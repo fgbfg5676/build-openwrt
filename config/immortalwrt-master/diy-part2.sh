@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# 最终解决方案脚本 v55 - 终级裁决版
-# 作者: The Architect & Manus AI (在您的专业指导下完成)
+# 最终解决方案脚本 v56 - 修复net-snmp路径问题
+# 作者: The Architect & Manus AI
 #
 
 set -e
@@ -19,9 +19,39 @@ DTS_DIR="target/linux/ipq40xx/files/arch/arm/boot/dts"
 DTS_FILE="$DTS_DIR/qcom-ipq4019-cm520-79f.dts"
 GENERIC_MK="target/linux/ipq40xx/image/generic.mk"
 CUSTOM_PLUGINS_DIR="package/custom"
-SNMP_DIR="package/feeds/packages/net-snmp"
-SNMP_MAKEFILE="$SNMP_DIR/Makefile"
-SNMP_CONFIG="$SNMP_DIR/Config.in"
+
+# 尝试多种可能的net-snmp路径（兼容不同OpenWrt版本）
+POSSIBLE_SNMP_PATHS=(
+    "package/feeds/packages/net-snmp"
+    "package/network/services/net-snmp"
+    "feeds/packages/net-snmp"
+)
+
+# 自动检测net-snmp目录
+SNMP_DIR=""
+for path in "${POSSIBLE_SNMP_PATHS[@]}"; do
+    if [ -d "$path" ]; then
+        SNMP_DIR="$path"
+        break
+    fi
+done
+
+if [ -z "$SNMP_DIR" ]; then
+    log_info "未找到net-snmp包，跳过冲突修复（将在配置中直接禁用）"
+    SNMP_NOT_FOUND=1
+else
+    SNMP_MAKEFILE="$SNMP_DIR/Makefile"
+    # 处理不同版本的配置文件命名差异
+    if [ -f "$SNMP_DIR/Config.in" ]; then
+        SNMP_CONFIG="$SNMP_DIR/Config.in"
+    elif [ -f "$SNMP_DIR/config.in" ]; then
+        SNMP_CONFIG="$SNMP_DIR/config.in"
+    else
+        log_info "未找到net-snmp配置文件，使用备选方案"
+        SNMP_CONFIG_NOT_FOUND=1
+    fi
+fi
+
 log_success "基础变量定义完成。"
 
 # -------------------- 步骤 2：创建必要的目录 --------------------
@@ -339,65 +369,61 @@ log_info "步骤 9：更新和安装所有feeds..."
 log_success "Feeds操作完成。"
 
 # -------------------- 步骤 10：修复net-snmp依赖冲突 --------------------
-log_info "步骤 10：修复net-snmp依赖冲突(二选一方案)..."
+log_info "步骤 10：处理net-snmp依赖问题..."
 
-# 检查net-snmp包是否存在
-if [ ! -d "$SNMP_DIR" ]; then
-    log_error "未找到net-snmp包目录: $SNMP_DIR"
+# 只有找到完整的net-snmp文件结构才进行复杂修复
+if [ -z "$SNMP_NOT_FOUND" ] && [ -z "$SNMP_CONFIG_NOT_FOUND" ] && [ -f "$SNMP_MAKEFILE" ] && [ -f "$SNMP_CONFIG" ]; then
+    log_info "找到完整net-snmp包，执行二选一修复方案..."
+    
+    log_info "备份原始配置文件..."
+    cp "$SNMP_MAKEFILE" "$SNMP_MAKEFILE.bak" || log_error "备份Makefile失败"
+    cp "$SNMP_CONFIG" "$SNMP_CONFIG.bak" || log_error "备份Config.in失败"
+
+    # 修改Makefile依赖规则
+    log_info "修改Makefile依赖规则..."
+    sed -i '/^define Package\/snmpd-ssl$/,/^endef$/ {
+        /^  DEPENDS:=/c\  DEPENDS:=+libnetsnmp-ssl +SNMP_ENABLE_SSL:libopenssl
+    }' "$SNMP_MAKEFILE"
+
+    sed -i '/^define Package\/snmpd-nossl$/,/^endef$/ {
+        /^  DEPENDS:=/c\  DEPENDS:=+libnetsnmp-nossl +!SNMP_ENABLE_SSL:libopenssl
+    }' "$SNMP_MAKEFILE"
+
+    sed -i '/^define Package\/libnetsnmp-ssl$/,/^endef$/ {
+        /^  DEPENDS:=/c\  DEPENDS:=+SNMP_ENABLE_SSL:libopenssl +SNMP_ENABLE_SSL:libcrypto
+    }' "$SNMP_MAKEFILE"
+
+    sed -i '/^define Package\/libnetsnmp-nossl$/,/^endef$/ {
+        /^  DEPENDS:=/c\  DEPENDS:=+!SNMP_ENABLE_SSL:libopenssl +!SNMP_ENABLE_SSL:libcrypto
+    }' "$SNMP_MAKEFILE"
+
+    # 修改Config.in配置选项
+    log_info "修改Config.in配置选项..."
+    sed -i '1i config SNMP_ENABLE_SSL\n    bool "Enable SSL support in net-snmp"\n    default n\n    help\n      Choose whether to build net-snmp with SSL support.\n      If enabled, SSL versions of libraries and tools will be built.\n      If disabled, non-SSL versions will be used.\n' "$SNMP_CONFIG"
+
+    # 设置子包依赖关系
+    sed -i '/^config PACKAGE_snmpd-ssl$/,/^endmenu$/ {
+        /^    depends on /c\    depends on SNMP_ENABLE_SSL
+    }' "$SNMP_CONFIG"
+
+    sed -i '/^config PACKAGE_snmpd-nossl$/,/^endmenu$/ {
+        /^    depends on /c\    depends on !SNMP_ENABLE_SSL
+    }' "$SNMP_CONFIG"
+
+    sed -i '/^config PACKAGE_libnetsnmp-ssl$/,/^endmenu$/ {
+        /^    depends on /c\    depends on SNMP_ENABLE_SSL
+    }' "$SNMP_CONFIG"
+
+    sed -i '/^config PACKAGE_libnetsnmp-nossl$/,/^endmenu$/ {
+        /^    depends on /c\    depends on !SNMP_ENABLE_SSL
+    }' "$SNMP_CONFIG"
+
+    log_success "net-snmp依赖冲突修复完成"
+    SNMP_FIXED=1
+else
+    log_info "未找到完整的net-snmp配置文件，使用简化方案：直接禁用冲突包"
+    SNMP_FIXED=0
 fi
-
-# 检查必要文件是否存在
-if [ ! -f "$SNMP_MAKEFILE" ]; then
-    log_error "未找到Makefile: $SNMP_MAKEFILE"
-fi
-if [ ! -f "$SNMP_CONFIG" ]; then
-    log_error "未找到Config.in: $SNMP_CONFIG"
-fi
-
-log_info "备份原始配置文件..."
-cp "$SNMP_MAKEFILE" "$SNMP_MAKEFILE.bak" || log_error "备份Makefile失败"
-cp "$SNMP_CONFIG" "$SNMP_CONFIG.bak" || log_error "备份Config.in失败"
-
-# 修改Makefile依赖规则
-log_info "修改Makefile依赖规则..."
-sed -i '/^define Package\/snmpd-ssl$/,/^endef$/ {
-    /^  DEPENDS:=/c\  DEPENDS:=+libnetsnmp-ssl +SNMP_ENABLE_SSL:libopenssl
-}' "$SNMP_MAKEFILE"
-
-sed -i '/^define Package\/snmpd-nossl$/,/^endef$/ {
-    /^  DEPENDS:=/c\  DEPENDS:=+libnetsnmp-nossl +!SNMP_ENABLE_SSL:libopenssl
-}' "$SNMP_MAKEFILE"
-
-sed -i '/^define Package\/libnetsnmp-ssl$/,/^endef$/ {
-    /^  DEPENDS:=/c\  DEPENDS:=+SNMP_ENABLE_SSL:libopenssl +SNMP_ENABLE_SSL:libcrypto
-}' "$SNMP_MAKEFILE"
-
-sed -i '/^define Package\/libnetsnmp-nossl$/,/^endef$/ {
-    /^  DEPENDS:=/c\  DEPENDS:=+!SNMP_ENABLE_SSL:libopenssl +!SNMP_ENABLE_SSL:libcrypto
-}' "$SNMP_MAKEFILE"
-
-# 修改Config.in配置选项
-log_info "修改Config.in配置选项..."
-sed -i '1i config SNMP_ENABLE_SSL\n    bool "Enable SSL support in net-snmp"\n    default n\n    help\n      Choose whether to build net-snmp with SSL support.\n      If enabled, SSL versions of libraries and tools will be built.\n      If disabled, non-SSL versions will be used.\n' "$SNMP_CONFIG"
-
-# 设置子包依赖关系
-sed -i '/^config PACKAGE_snmpd-ssl$/,/^endmenu$/ {
-    /^    depends on /c\    depends on SNMP_ENABLE_SSL
-}' "$SNMP_CONFIG"
-
-sed -i '/^config PACKAGE_snmpd-nossl$/,/^endmenu$/ {
-    /^    depends on /c\    depends on !SNMP_ENABLE_SSL
-}' "$SNMP_CONFIG"
-
-sed -i '/^config PACKAGE_libnetsnmp-ssl$/,/^endmenu$/ {
-    /^    depends on /c\    depends on SNMP_ENABLE_SSL
-}' "$SNMP_CONFIG"
-
-sed -i '/^config PACKAGE_libnetsnmp-nossl$/,/^endmenu$/ {
-    /^    depends on /c\    depends on !SNMP_ENABLE_SSL
-}' "$SNMP_CONFIG"
-
-log_success "net-snmp依赖冲突修复完成"
 
 # -------------------- 步骤 11：生成最终配置文件 --------------------
 log_info "步骤 11：生成最终配置文件..."
@@ -414,12 +440,26 @@ echo "CONFIG_PACKAGE_luci-app-passwall=y" >> "$CONFIG_FILE"
 echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y" >> "$CONFIG_FILE"
 echo "# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client is not set" >> "$CONFIG_FILE"
 
-# 配置net-snmp为nossl版本
-echo "CONFIG_SNMP_ENABLE_SSL=n" >> "$CONFIG_FILE"
-echo "CONFIG_PACKAGE_libnetsnmp-nossl=y" >> "$CONFIG_FILE"
-echo "CONFIG_PACKAGE_snmpd-nossl=y" >> "$CONFIG_FILE"
-echo "# CONFIG_PACKAGE_libnetsnmp-ssl is not set" >> "$CONFIG_FILE"
-echo "# CONFIG_PACKAGE_snmpd-ssl is not set" >> "$CONFIG_FILE"
+# 配置net-snmp（根据不同情况处理）
+if [ "$SNMP_FIXED" = "1" ]; then
+    # 如果已修复，配置为nossl版本
+    echo "CONFIG_SNMP_ENABLE_SSL=n" >> "$CONFIG_FILE"
+    echo "CONFIG_PACKAGE_libnetsnmp-nossl=y" >> "$CONFIG_FILE"
+    echo "CONFIG_PACKAGE_snmpd-nossl=y" >> "$CONFIG_FILE"
+    echo "# CONFIG_PACKAGE_libnetsnmp-ssl is not set" >> "$CONFIG_FILE"
+    echo "# CONFIG_PACKAGE_snmpd-ssl is not set" >> "$CONFIG_FILE"
+else
+    # 如果未找到或无法修复，直接禁用所有net-snmp相关包
+    echo "# 禁用所有net-snmp包以避免冲突" >> "$CONFIG_FILE"
+    echo "# CONFIG_PACKAGE_net-snmp is not set" >> "$CONFIG_FILE"
+    echo "# CONFIG_PACKAGE_snmpd is not set" >> "$CONFIG_FILE"
+    echo "# CONFIG_PACKAGE_libnetsnmp is not set" >> "$CONFIG_FILE"
+    echo "# CONFIG_PACKAGE_snmp-utils is not set" >> "$CONFIG_FILE"
+    echo "# CONFIG_PACKAGE_libnetsnmp-ssl is not set" >> "$CONFIG_FILE"
+    echo "# CONFIG_PACKAGE_libnetsnmp-nossl is not set" >> "$CONFIG_FILE"
+    echo "# CONFIG_PACKAGE_snmpd-ssl is not set" >> "$CONFIG_FILE"
+    echo "# CONFIG_PACKAGE_snmpd-nossl is not set" >> "$CONFIG_FILE"
+fi
 
 # 启用其他基础依赖
 echo "CONFIG_PACKAGE_kmod-ubi=y" >> "$CONFIG_FILE"
