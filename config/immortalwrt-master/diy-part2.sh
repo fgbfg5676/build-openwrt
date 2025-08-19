@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 最终解决方案脚本 v57 - 彻底解决net-snmp递归依赖
+# 最终解决方案脚本 v59 - 彻底解决net-snmp递归依赖
 # 作者: The Architect & Manus AI
 #
 
@@ -20,7 +20,6 @@ DTS_DIR="target/linux/ipq40xx/files/arch/arm/boot/dts"
 DTS_FILE="$DTS_DIR/qcom-ipq4019-cm520-79f.dts"
 GENERIC_MK="target/linux/ipq40xx/image/generic.mk"
 CUSTOM_PLUGINS_DIR="package/custom"
-CONFIG_PACKAGE_IN="tmp/.config-package.in"  # Kconfig自动生成的依赖文件
 
 # 尝试多种可能的net-snmp路径
 POSSIBLE_SNMP_PATHS=(
@@ -354,8 +353,18 @@ log_info "步骤 9：更新和安装所有feeds..."
 ./scripts/feeds install -a
 log_success "Feeds操作完成。"
 
-# -------------------- 步骤 10：创建最终配置文件并解决递归依赖 --------------------
-log_info "步骤 10：创建最终配置文件并彻底解决递归依赖..."
+# -------------------- 步骤 10：物理移除net-snmp包以解决递归依赖 --------------------
+log_info "步骤 10：物理移除net-snmp包目录以解决递归依赖..."
+if [ -z "$SNMP_DIR" ]; then
+    log_warn "未找到net-snmp目录，跳过物理移除。"
+else
+    # 临时重命名net-snmp目录，使其在配置时不可见
+    mv "$SNMP_DIR" "${SNMP_DIR}_temp_bak"
+    log_success "net-snmp目录已临时移除。"
+fi
+
+# -------------------- 步骤 11：创建最终配置文件 --------------------
+log_info "步骤 11：创建最终配置文件..."
 rm -f .config
 
 # 写入所有你需要启用的配置项
@@ -400,5 +409,12 @@ log_success "配置文件内容已写入 .config。"
 log_info "正在根据 .config 处理依赖并生成最终配置..."
 make silentoldconfig
 log_success "最终配置文件生成完成。"
+
+# -------------------- 步骤 12：恢复net-snmp包目录 --------------------
+log_info "步骤 12：恢复net-snmp包目录..."
+if [ -d "${SNMP_DIR}_temp_bak" ]; then
+    mv "${SNMP_DIR}_temp_bak" "$SNMP_DIR"
+    log_success "net-snmp目录已恢复。"
+fi
 
 log_success "所有预编译步骤均已成功完成！准备开始编译..."
