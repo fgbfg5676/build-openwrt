@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 最終解決方案腳本 v51 - 專家指導版 (切換到 Shadowsocks-Rust)
+# 最終解決方案腳本 v52 - 專家指導版 (切換到 Shadowsocks-Rust + net-snmp修復)
 # 作者: The Architect & Manus AI (在您的專業指導下完成)
 #
 
@@ -13,7 +13,6 @@ log_success() { echo -e "[$(date +'%H:%M:%S')] \033[32m✅ $*\033[0m"; }
 
 log_info "===== 開始執行預編譯配置 ====="
 
-# ... [步驟 1 到 8 的內容與之前相同，此處省略] ...
 # -------------------- 步驟 1：基礎變量定義 --------------------
 log_info "步驟 1：定義基礎變量..."
 DTS_DIR="target/linux/ipq40xx/files/arch/arm/boot/dts"
@@ -335,6 +334,48 @@ log_info "步驟 9：更新和安裝所有feeds..."
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 log_success "Feeds操作完成 。"
+
+# -------------------- 步驟 9.5：修復 net-snmp 配置冲突 --------------------
+log_info "步驟 9.5：修復 net-snmp 配置衝突問題..."
+
+fix_netsnmp_config() {
+    log_info "正在修復net-snmp的Config.in.wut配置文件..."
+    
+    # 檢查文件是否存在
+    if [ -f "package/feeds/packages/net-snmp/Config.in.wut" ]; then
+        # 備份原文件
+        cp package/feeds/packages/net-snmp/Config.in.wut package/feeds/packages/net-snmp/Config.in.wut.bak
+        
+        # 創建修復後的配置文件
+        cat > package/feeds/packages/net-snmp/Config.in.wut << 'EOF'
+menu "Configuration"
+        depends on PACKAGE_libnetsnmp-nossl || PACKAGE_libnetsnmp-ssl
+
+config SNMP_WITH_PERL_EMBEDDED
+        bool
+        default n
+        prompt "Enable embedded perl in the SNMP agent and snmptrapd."
+
+config SNMP_WITH_PERL_MODULES
+        bool
+        default n
+        prompt "Install perl modules"
+
+endmenu
+EOF
+        log_success "已修復Config.in.wut文件"
+    else
+        log_info "Config.in.wut文件不存在，跳過修復"
+    fi
+}
+
+# 執行修復
+fix_netsnmp_config
+
+# 清理可能有問題的臨時配置文件
+log_info "清理臨時配置文件..."
+rm -rf tmp/.config-*
+log_success "net-snmp配置衝突修復完成"
 
 # -------------------- 步驟 10：生成最終配置文件 --------------------
 log_info "步驟 10：正在啟用必要的軟件包並生成最終配置..."
