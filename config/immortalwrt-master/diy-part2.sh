@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 最終解決方案腳本 v46 - 根除遞歸依賴 (Kconfig 補丁)
+# 最終解決方案腳本 v47 - 強制更新插件並修復依賴
 # 作者: The Architect & Manus AI
 #
 
@@ -13,7 +13,7 @@ log_success() { echo -e "[$(date +'%H:%M:%S')] \033[32m✅ $*\033[0m"; }
 
 log_info "===== 開始執行預編譯配置 ====="
 
-# ... [步驟 1 到 8 的內容與之前相同，此處省略] ...
+# ... [步驟 1 到 7 的內容與之前相同，此處省略] ...
 # -------------------- 步驟 1：基礎變量定義 --------------------
 log_info "步驟 1：定義基礎變量..."
 DTS_DIR="target/linux/ipq40xx/files/arch/arm/boot/dts"
@@ -293,15 +293,10 @@ fi
 
 # -------------------- 步驟 6：通用系統設置 --------------------
 log_info "步驟 6：修改默認IP、密碼和版本信息..."
-# 修改默認IP (FROM 192.168.1.1 TO 192.168.5.1)
 sed -i 's/192.168.1.1/192.168.5.1/g' package/base-files/files/bin/config_generate
 log_success "默認IP修改為 192.168.5.1"
-
-# 為 'root' 用戶添加默認密碼 (password)
 sed -i 's/root:::0:99999:7:::/root:$1$V4UetPzk$CYXluq4wUazHjmCDBCqXF.::0:99999:7:::/g' package/base-files/files/etc/shadow
 log_success "默認密碼設置為 'password'"
-
-# 設置 etc/openwrt_release
 sed -i "s|DISTRIB_REVISION='.*'|DISTRIB_REVISION='R$(date +%Y.%m.%d)'|g" package/base-files/files/etc/openwrt_release
 echo "DISTRIB_SOURCECODE='immortalwrt'" >>package/base-files/files/etc/openwrt_release
 log_success "版本號和源碼信息已更新。"
@@ -310,35 +305,31 @@ log_success "版本號和源碼信息已更新。"
 log_info "步驟 7：集成 sirpdboy 插件..."
 SIRPDBOY_REPO="https://github.com/sirpdboy"
 for plugin in luci-app-partexp luci-app-advanced luci-app-poweroffdevice; do
-  if [ ! -d "$CUSTOM_PLUGINS_DIR/$plugin/.git" ]; then
-    if git clone --depth 1 $SIRPDBOY_REPO/$plugin "$CUSTOM_PLUGINS_DIR/$plugin"; then
-      log_success "$plugin 克隆成功"
-    else
-      log_error "$plugin 克隆失敗"
-    fi
+  rm -rf "$CUSTOM_PLUGINS_DIR/$plugin"
+  if git clone --depth 1 $SIRPDBOY_REPO/$plugin "$CUSTOM_PLUGINS_DIR/$plugin"; then
+    log_success "$plugin 克隆成功"
   else
-    log_info "$plugin 已存在 ，跳過克隆。"
+    log_error "$plugin 克隆失敗"
   fi
 done
 
-# -------------------- 步驟 8：集成 PassWall2 --------------------
-log_info "步驟 8：集成 PassWall2..."
-if [ ! -d "$CUSTOM_PLUGINS_DIR/luci-app-passwall2/.git" ]; then
-  if git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall2.git "$CUSTOM_PLUGINS_DIR/luci-app-passwall2"; then
-    log_success "PassWall2 克隆成功"
-  else
-    log_error "PassWall2 克隆失敗"
-  fi
+# -------------------- 步驟 8：集成 PassWall2 (強制更新 ) --------------------
+log_info "步驟 8：集成 PassWall2 (強制更新)..."
+PW2_APP_DIR="$CUSTOM_PLUGINS_DIR/luci-app-passwall2"
+PW2_PKG_DIR="$CUSTOM_PLUGINS_DIR/passwall-packages"
+rm -rf "$PW2_APP_DIR" "$PW2_PKG_DIR"
+log_info "已刪除舊的 PassWall 倉庫，準備重新克隆..."
+
+if git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall2.git "$PW2_APP_DIR"; then
+  log_success "PassWall2 克隆成功"
 else
-  log_info "PassWall2 已存在 ，跳過克隆。"
+  log_error "PassWall2 克隆失敗"
 fi
 
-if [ ! -d "$CUSTOM_PLUGINS_DIR/passwall-packages/.git" ]; then
-  if git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall-packages.git "$CUSTOM_PLUGINS_DIR/passwall-packages"; then
-    log_success "PassWall 公共依賴克隆成功"
-  else
-    log_error "PassWall 公共依賴克隆失敗"
-  fi
+if git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall-packages.git "$PW2_PKG_DIR"; then
+  log_success "PassWall 公共依賴克隆成功"
+else
+  log_error "PassWall 公共依賴克隆失敗"
 fi
 
 # -------------------- 步驟 9：更新與安裝Feeds --------------------
@@ -359,7 +350,6 @@ fi
 
 # -------------------- 步驟 11：生成最終配置文件 --------------------
 log_info "步驟 11：正在啟用必要的軟件包並生成最終配置..."
-
 CONFIG_FILE=".config.custom"
 rm -f $CONFIG_FILE
 
