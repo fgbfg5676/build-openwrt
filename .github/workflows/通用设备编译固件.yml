@@ -126,8 +126,8 @@ jobs:
         id: compile
         run: |
           cd openwrt/
-          echo "Starting multi-thread compile: $(nproc) threads"
-          make -j$(($(nproc)+1)) V=s || make -j1 || make -j1 V=s
+          echo "Starting single-thread debug compile..."
+          make -j1 V=s
           echo "status=success" >> ${GITHUB_OUTPUT}
           grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
           [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
