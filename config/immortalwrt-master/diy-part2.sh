@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 最終解決方案腳本 v54 - 釜底抽薪版 (徹底禁用SNMP)
+# 最終解決方案腳本 v55 - 終極裁決版
 # 作者: The Architect & Manus AI (在您的專業指導下完成)
 #
 
@@ -13,7 +13,7 @@ log_success() { echo -e "[$(date +'%H:%M:%S')] \033[32m✅ $*\033[0m"; }
 
 log_info "===== 開始執行預編譯配置 ====="
 
-# ... [步驟 1 到 9 的內容與 v53 版本相同，此處省略] ...
+# ... [步驟 1 到 9 的內容與 v54 版本相同，此處省略] ...
 # -------------------- 步驟 1：基礎變量定義 --------------------
 log_info "步驟 1：定義基礎變量..."
 DTS_DIR="target/linux/ipq40xx/files/arch/arm/boot/dts"
@@ -336,23 +336,10 @@ log_info "步驟 9：更新和安裝所有feeds..."
 ./scripts/feeds install -a
 log_success "Feeds操作完成  。"
 
-# -------------------- 步驟 10：生成最終配置文件 --------------------
-log_info "步驟 10：正在啟用必要的軟件包並生成最終配置..."
+# -------------------- 步驟 10：生成初始配置文件 --------------------
+log_info "步驟 10：生成初始配置文件..."
 CONFIG_FILE=".config.custom"
 rm -f $CONFIG_FILE
-
-# --- 釜底抽薪：徹底禁用所有SNMP相關包以避免依賴衝突 ---
-log_info "正在禁用所有SNMP相關包以規避依賴衝突..."
-echo "# CONFIG_PACKAGE_net-snmp is not set" >> $CONFIG_FILE
-echo "# CONFIG_PACKAGE_snmpd is not set" >> $CONFIG_FILE
-echo "# CONFIG_PACKAGE_snmpd-nossl is not set" >> $CONFIG_FILE
-echo "# CONFIG_PACKAGE_snmpd-ssl is not set" >> $CONFIG_FILE
-echo "# CONFIG_PACKAGE_libnetsnmp is not set" >> $CONFIG_FILE
-echo "# CONFIG_PACKAGE_libnetsnmp-nossl is not set" >> $CONFIG_FILE
-echo "# CONFIG_PACKAGE_libnetsnmp-ssl is not set" >> $CONFIG_FILE
-echo "# CONFIG_PACKAGE_snmp-utils is not set" >> $CONFIG_FILE
-echo "# CONFIG_PACKAGE_snmp-utils-nossl is not set" >> $CONFIG_FILE
-echo "# CONFIG_PACKAGE_snmp-utils-ssl is not set" >> $CONFIG_FILE
 
 # --- 啟用 sirpdboy 插件 ---
 echo "CONFIG_PACKAGE_luci-app-partexp=y" >> $CONFIG_FILE
@@ -360,12 +347,9 @@ echo "CONFIG_PACKAGE_luci-app-advanced=y" >> $CONFIG_FILE
 echo "CONFIG_PACKAGE_luci-app-poweroffdevice=y" >> $CONFIG_FILE
 
 # --- 啟用 PassWall2 並切換到 Shadowsocks-Rust 核心 ---
-log_info "啟用 PassWall2 並切換到 Shadowsocks-Rust 核心..."
 echo "CONFIG_PACKAGE_luci-app-passwall=y" >> $CONFIG_FILE
 echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y" >> $CONFIG_FILE
-# echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Server=y" >> $CONFIG_FILE
 echo "# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client is not set" >> $CONFIG_FILE
-echo "# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Server is not set" >> $CONFIG_FILE
 
 # --- 啟用其他基礎依賴 ---
 echo "CONFIG_PACKAGE_kmod-ubi=y" >> $CONFIG_FILE
@@ -380,6 +364,24 @@ echo "CONFIG_TARGET_ROOTFS_NO_CHECK_SIZE=y" >> $CONFIG_FILE
 cat $CONFIG_FILE >> .config
 rm -f $CONFIG_FILE
 
+# 第一次運行 defconfig，允許它生成包含衝突的 .config 文件
+log_info "生成包含衝突的 .config 文件..."
+make defconfig || true
+log_success "初始 .config 文件生成完畢。"
+
+# -------------------- 步驟 11：終極裁決 - 手動修正 .config 文件 --------------------
+log_info "步驟 11：手動修正 .config 文件，強制禁用SNMP..."
+
+# 使用 sed 命令直接在 .config 文件中註釋掉所有與 net-snmp 相關的行
+sed -i -e 's/^\(CONFIG_PACKAGE_net-snmp\)/# \1/g' \
+       -e 's/^\(CONFIG_PACKAGE_snmpd\)/# \1/g' \
+       -e 's/^\(CONFIG_PACKAGE_libnetsnmp\)/# \1/g' \
+       -e 's/^\(CONFIG_PACKAGE_snmp-utils\)/# \1/g' .config
+
+log_success "已強制禁用SNMP相關包。"
+
+# -------------------- 步驟 12：基於修正後的配置進行最終更新 --------------------
+log_info "步驟 12：基於修正後的 .config 進行最終更新..."
 make defconfig
 log_success "最終配置文件生成完成。"
 
