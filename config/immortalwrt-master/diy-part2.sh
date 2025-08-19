@@ -10,6 +10,7 @@ set -e
 log_info() { echo -e "[$(date +'%H:%M:%S')] \033[34mℹ️  $*\033[0m"; }
 log_error() { echo -e "[$(date +'%H:%M:%S')] \033[31m❌ $*\033[0m"; exit 1; }
 log_success() { echo -e "[$(date +'%H:%M:%S')] \033[32m✅ $*\033[0m"; }
+log_warn() { echo -e "[$(date +'%H:%M:%S')] \033[33m⚠️  $*\033[0m"; }
 
 log_info "===== 开始执行预编译配置 ====="
 
@@ -292,13 +293,13 @@ if ! grep -q "define Device/mobipromo_cm520-79f" "$GENERIC_MK"; then
     cat <<EOF >> "$GENERIC_MK"
 
 define Device/mobipromo_cm520-79f
-  DEVICE_VENDOR := MobiPromo
-  DEVICE_MODEL := CM520-79F
-  DEVICE_DTS := qcom-ipq4019-cm520-79f
-  KERNEL_SIZE := 4096k
-  ROOTFS_SIZE := 16384k
-  IMAGE_SIZE := 81920k
-  IMAGE/trx := append-kernel | pad-to \$(KERNEL_SIZE) | append-rootfs | trx -o \$@
+    DEVICE_VENDOR := MobiPromo
+    DEVICE_MODEL := CM520-79F
+    DEVICE_DTS := qcom-ipq4019-cm520-79f
+    KERNEL_SIZE := 4096k
+    ROOTFS_SIZE := 16384k
+    IMAGE_SIZE := 81920k
+    IMAGE/trx := append-kernel | pad-to \$(KERNEL_SIZE) | append-rootfs | trx -o \$@
 endef
 TARGET_DEVICES += mobipromo_cm520-79f
 EOF
@@ -322,12 +323,12 @@ log_success "版本号和源代码信息已更新。"
 log_info "步骤 7：集成sirpdboy插件(强制更新)..."
 SIRPDBOY_REPO="https://github.com/sirpdboy"
 for plugin in luci-app-partexp luci-app-advanced luci-app-poweroffdevice; do
-  rm -rf "$CUSTOM_PLUGINS_DIR/$plugin"
-  if git clone --depth 1 "$SIRPDBOY_REPO/$plugin" "$CUSTOM_PLUGINS_DIR/$plugin"; then
-    log_success "$plugin克隆成功"
-  else
-    log_error "$plugin克隆失败"
-  fi
+    rm -rf "$CUSTOM_PLUGINS_DIR/$plugin"
+    if git clone --depth 1 "$SIRPDBOY_REPO/$plugin" "$CUSTOM_PLUGINS_DIR/$plugin"; then
+        log_success "$plugin克隆成功"
+    else
+        log_error "$plugin克隆失败"
+    fi
 done
 
 # -------------------- 步骤 8：集成PassWall2(强制更新) --------------------
@@ -337,14 +338,14 @@ PW2_PKG_DIR="$CUSTOM_PLUGINS_DIR/passwall-packages"
 rm -rf "$PW2_APP_DIR" "$PW2_PKG_DIR"
 log_info "已删除旧的PassWall仓库，准备重新克隆..."
 if git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall.git "$PW2_APP_DIR"; then
-  log_success "PassWall克隆成功"
+    log_success "PassWall克隆成功"
 else
-  log_error "PassWall克隆失败"
+    log_error "PassWall克隆失败"
 fi
 if git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall-packages.git "$PW2_PKG_DIR"; then
-  log_success "PassWall公共依赖克隆成功"
+    log_success "PassWall公共依赖克隆成功"
 else
-  log_error "PassWall公共依赖克隆失败"
+    log_error "PassWall公共依赖克隆失败"
 fi
 
 # -------------------- 步骤 9：更新与安装Feeds --------------------
@@ -353,90 +354,51 @@ log_info "步骤 9：更新和安装所有feeds..."
 ./scripts/feeds install -a
 log_success "Feeds操作完成。"
 
-# -------------------- 步骤 10：生成初始配置并清理递归依赖 --------------------
-log_info "步骤 10：生成初始配置并处理递归依赖..."
-
-# 生成初始配置（允许冲突）
-log_info "生成初始配置文件..."
+# -------------------- 步骤 10：创建最终配置文件并解决递归依赖 --------------------
+log_info "步骤 10：创建最终配置文件并彻底解决递归依赖..."
 rm -f .config
-make defconfig || true
 
-# 关键步骤：直接修改Kconfig生成的依赖文件，移除递归依赖规则
-if [ -f "$CONFIG_PACKAGE_IN" ]; then
-    log_info "正在清理net-snmp递归依赖规则..."
-    
-    # 移除libnetsnmp-ssl和libnetsnmp-nossl之间的相互依赖
-    sed -i '/PACKAGE_libnetsnmp-ssl/ {
-        /depends on.*PACKAGE_libnetsnmp-nossl/ s/PACKAGE_libnetsnmp-nossl/!PACKAGE_libnetsnmp-nossl/
-    }' "$CONFIG_PACKAGE_IN"
-    
-    sed -i '/PACKAGE_libnetsnmp-nossl/ {
-        /select.*PACKAGE_libnetsnmp-ssl/ d
-    }' "$CONFIG_PACKAGE_IN"
-    
-    # 移除snmpd-ssl和snmpd-nossl之间的相互依赖
-    sed -i '/PACKAGE_snmpd-ssl/ {
-        /depends on.*PACKAGE_snmpd-nossl/ s/PACKAGE_snmpd-nossl/!PACKAGE_snmpd-nossl/
-    }' "$CONFIG_PACKAGE_IN"
-    
-    sed -i '/PACKAGE_snmpd-nossl/ {
-        /select.*PACKAGE_snmpd-ssl/ d
-    }' "$CONFIG_PACKAGE_IN"
-    
-    log_success "递归依赖规则清理完成"
-else
-    log_warn "未找到Kconfig依赖文件，跳过规则清理"
-fi
-
-# -------------------- 步骤 11：生成最终配置并强制禁用冲突包 --------------------
-log_info "步骤 11：生成最终配置文件..."
-CONFIG_FILE=".config.custom"
-rm -f "$CONFIG_FILE"
+# 写入所有你需要启用的配置项
+cat <<EOF > .config
+# OpenWrt 固件基础配置
+CONFIG_TARGET_ipq40xx=y
+CONFIG_TARGET_ipq40xx_generic=y
+CONFIG_TARGET_MULTI_PROFILE=y
+CONFIG_TARGET_DEVICE_ipq40xx_DEVICE_mobipromo_cm520-79f=y
 
 # 启用必要插件
-echo "CONFIG_PACKAGE_luci-app-partexp=y" >> "$CONFIG_FILE"
-echo "CONFIG_PACKAGE_luci-app-advanced=y" >> "$CONFIG_FILE"
-echo "CONFIG_PACKAGE_luci-app-poweroffdevice=y" >> "$CONFIG_FILE"
-echo "CONFIG_PACKAGE_luci-app-passwall=y" >> "$CONFIG_FILE"
-echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y" >> "$CONFIG_FILE"
-echo "# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client is not set" >> "$CONFIG_FILE"
+CONFIG_PACKAGE_luci-app-partexp=y
+CONFIG_PACKAGE_luci-app-advanced=y
+CONFIG_PACKAGE_luci-app-poweroffdevice=y
+CONFIG_PACKAGE_luci-app-passwall=y
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y
+# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client is not set
 
-# 强制禁用所有net-snmp相关包（彻底切断依赖链）
-echo "# 彻底禁用net-snmp相关包以解决递归依赖" >> "$CONFIG_FILE"
-echo "# CONFIG_PACKAGE_net-snmp is not set" >> "$CONFIG_FILE"
-echo "# CONFIG_PACKAGE_snmpd is not set" >> "$CONFIG_FILE"
-echo "# CONFIG_PACKAGE_libnetsnmp is not set" >> "$CONFIG_FILE"
-echo "# CONFIG_PACKAGE_snmp-utils is not set" >> "$CONFIG_FILE"
-echo "# CONFIG_PACKAGE_libnetsnmp-ssl is not set" >> "$CONFIG_FILE"
-echo "# CONFIG_PACKAGE_libnetsnmp-nossl is not set" >> "$CONFIG_FILE"
-echo "# CONFIG_PACKAGE_snmpd-ssl is not set" >> "$CONFIG_FILE"
-echo "# CONFIG_PACKAGE_snmpd-nossl is not set" >> "$CONFIG_FILE"
+# 强制禁用所有net-snmp相关包，从根源上避免递归依赖问题
+# CONFIG_PACKAGE_net-snmp is not set
+# CONFIG_PACKAGE_snmpd is not set
+# CONFIG_PACKAGE_libnetsnmp is not set
+# CONFIG_PACKAGE_snmp-utils is not set
+# CONFIG_PACKAGE_libnetsnmp-ssl is not set
+# CONFIG_PACKAGE_libnetsnmp-nossl is not set
+# CONFIG_PACKAGE_snmpd-ssl is not set
+# CONFIG_PACKAGE_snmpd-nossl is not set
 
 # 基础依赖
-echo "CONFIG_PACKAGE_kmod-ubi=y" >> "$CONFIG_FILE"
-echo "CONFIG_PACKAGE_kmod-ubifs=y" >> "$CONFIG_FILE"
-echo "CONFIG_PACKAGE_trx=y" >> "$CONFIG_FILE"
-echo "CONFIG_PACKAGE_kmod-ath10k-ct=y" >> "$CONFIG_FILE"
-echo "CONFIG_PACKAGE_ath10k-firmware-qca4019-ct=y" >> "$CONFIG_FILE"
-echo "CONFIG_PACKAGE_ipq-wifi-mobipromo_cm520-79f=y" >> "$CONFIG_FILE"
-echo "CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y" >> "$CONFIG_FILE"
-echo "CONFIG_TARGET_ROOTFS_NO_CHECK_SIZE=y" >> "$CONFIG_FILE"
+CONFIG_PACKAGE_kmod-ubi=y
+CONFIG_PACKAGE_kmod-ubifs=y
+CONFIG_PACKAGE_trx=y
+CONFIG_PACKAGE_kmod-ath10k-ct=y
+CONFIG_PACKAGE_ath10k-firmware-qca4019-ct=y
+CONFIG_PACKAGE_ipq-wifi-mobipromo_cm520-79f=y
+CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
+CONFIG_TARGET_ROOTFS_NO_CHECK_SIZE=y
+EOF
+log_success "配置文件内容已写入 .config。"
 
-# 合并配置
-cat "$CONFIG_FILE" >> .config
-rm -f "$CONFIG_FILE"
-
-# 使用silentoldconfig自动处理依赖，不交互
-log_info "自动处理配置依赖..."
+# 使用 silentoldconfig 来处理依赖，确保配置完整
+log_info "正在根据 .config 处理依赖并生成最终配置..."
 make silentoldconfig
-
-# 最后再次确保冲突包被禁用
-log_info "最终检查并禁用冲突包..."
-sed -i -e 's/^CONFIG_PACKAGE_libnetsnmp-ssl=y/# CONFIG_PACKAGE_libnetsnmp-ssl is not set/' \
-       -e 's/^CONFIG_PACKAGE_libnetsnmp-nossl=y/# CONFIG_PACKAGE_libnetsnmp-nossl is not set/' \
-       -e 's/^CONFIG_PACKAGE_snmpd-ssl=y/# CONFIG_PACKAGE_snmpd-ssl is not set/' \
-       -e 's/^CONFIG_PACKAGE_snmpd-nossl=y/# CONFIG_PACKAGE_snmpd-nossl is not set/' .config
-
 log_success "最终配置文件生成完成。"
 
 log_success "所有预编译步骤均已成功完成！准备开始编译..."
