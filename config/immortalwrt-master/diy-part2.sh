@@ -1,34 +1,36 @@
 #!/bin/bash
 #
-# 最終解決方案腳本 v55 - 終極裁決版
-# 作者: The Architect & Manus AI (在您的專業指導下完成)
+# 最终解决方案脚本 v55 - 终级裁决版
+# 作者: The Architect & Manus AI (在您的专业指导下完成)
 #
 
 set -e
 
-# -------------------- 日誌函數 --------------------
+# -------------------- 日志函数 --------------------
 log_info() { echo -e "[$(date +'%H:%M:%S')] \033[34mℹ️  $*\033[0m"; }
 log_error() { echo -e "[$(date +'%H:%M:%S')] \033[31m❌ $*\033[0m"; exit 1; }
 log_success() { echo -e "[$(date +'%H:%M:%S')] \033[32m✅ $*\033[0m"; }
 
-log_info "===== 開始執行預編譯配置 ====="
+log_info "===== 开始执行预编译配置 ====="
 
-# ... [步驟 1 到 9 的內容與 v54 版本相同，此處省略] ...
-# -------------------- 步驟 1：基礎變量定義 --------------------
-log_info "步驟 1：定義基礎變量..."
+# -------------------- 步骤 1：基础变量定义 --------------------
+log_info "步骤 1：定义基础变量..."
 DTS_DIR="target/linux/ipq40xx/files/arch/arm/boot/dts"
 DTS_FILE="$DTS_DIR/qcom-ipq4019-cm520-79f.dts"
 GENERIC_MK="target/linux/ipq40xx/image/generic.mk"
 CUSTOM_PLUGINS_DIR="package/custom"
-log_success "基礎變量定義完成。"
+SNMP_DIR="package/feeds/packages/net-snmp"
+SNMP_MAKEFILE="$SNMP_DIR/Makefile"
+SNMP_CONFIG="$SNMP_DIR/Config.in"
+log_success "基础变量定义完成。"
 
-# -------------------- 步驟 2：創建必要的目錄 --------------------
-log_info "步驟 2：創建必要的目錄..."
+# -------------------- 步骤 2：创建必要的目录 --------------------
+log_info "步骤 2：创建必要的目录..."
 mkdir -p "$DTS_DIR" "$CUSTOM_PLUGINS_DIR"
-log_success "目錄創建完成。"
+log_success "目录创建完成。"
 
-# -------------------- 步驟 3：寫入DTS文件 --------------------
-log_info "步驟 3：正在寫入100%正確的DTS文件..."
+# -------------------- 步骤 3：写入DTS文件 --------------------
+log_info "步骤 3：正在写入DTS文件..."
 cat > "$DTS_FILE" <<'EOF'
 /dts-v1/;
 // SPDX-License-Identifier: GPL-2.0-or-later OR MIT
@@ -247,10 +249,10 @@ cat > "$DTS_FILE" <<'EOF'
 &wifi0 { status = "okay"; nvmem-cell-names = "pre-calibration"; nvmem-cells = <&precal_art_1000>; qcom,ath10k-calibration-variant = "CM520-79F"; };
 &wifi1 { status = "okay"; nvmem-cell-names = "pre-calibration"; nvmem-cells = <&precal_art_5000>; qcom,ath10k-calibration-variant = "CM520-79F"; };
 EOF
-log_success "DTS文件寫入成功。"
+log_success "DTS文件写入成功。"
 
-# -------------------- 步驟 4：創建網絡配置文件 --------------------
-log_info "步驟 4：創建針對 CM520-79F 的網絡配置文件..."
+# -------------------- 步骤 4：创建网络配置文件 --------------------
+log_info "步骤 4：创建针对CM520-79F的网络配置文件..."
 BOARD_DIR="target/linux/ipq40xx/base-files/etc/board.d"
 mkdir -p "$BOARD_DIR"
 cat > "$BOARD_DIR/02_network" <<EOF
@@ -267,10 +269,10 @@ ipq40xx_board_detect() {
 }
 boot_hook_add preinit_main ipq40xx_board_detect
 EOF
-log_success "網絡配置文件創建完成。"
+log_success "网络配置文件创建完成。"
 
-# -------------------- 步驟 5：配置設備規則 --------------------
-log_info "步驟 5：配置設備規則..."
+# -------------------- 步骤 5：配置设备规则 --------------------
+log_info "步骤 5：配置设备规则..."
 if ! grep -q "define Device/mobipromo_cm520-79f" "$GENERIC_MK"; then
     cat <<EOF >> "$GENERIC_MK"
 
@@ -291,98 +293,149 @@ else
     log_info "设备规则已存在，更新IMAGE_SIZE。"
 fi
 
-# -------------------- 步驟 6：通用系統設置 --------------------
-log_info "步驟 6：修改默認IP、密碼和版本信息..."
+# -------------------- 步骤 6：通用系统设置 --------------------
+log_info "步骤 6：修改默认IP、密码和版本信息..."
 sed -i 's/192.168.1.1/192.168.5.1/g' package/base-files/files/bin/config_generate
-log_success "默認IP修改為 192.168.5.1"
+log_success "默认IP修改为192.168.5.1"
 sed -i 's/root:::0:99999:7:::/root:$1$V4UetPzk$CYXluq4wUazHjmCDBCqXF.::0:99999:7:::/g' package/base-files/files/etc/shadow
-log_success "默認密碼設置為 'password'"
+log_success "默认密码设置为'password'"
 sed -i "s|DISTRIB_REVISION='.*'|DISTRIB_REVISION='R$(date +%Y.%m.%d)'|g" package/base-files/files/etc/openwrt_release
-echo "DISTRIB_SOURCECODE='immortalwrt'" >>package/base-files/files/etc/openwrt_release
-log_success "版本號和源碼信息已更新。"
+echo "DISTRIB_SOURCECODE='immortalwrt'" >> package/base-files/files/etc/openwrt_release
+log_success "版本号和源代码信息已更新。"
 
-# -------------------- 步驟 7：sirpdboy插件集成 (強制更新) --------------------
-log_info "步驟 7：集成 sirpdboy 插件 (強制更新)..."
+# -------------------- 步骤 7：sirpdboy插件集成(强制更新) --------------------
+log_info "步骤 7：集成sirpdboy插件(强制更新)..."
 SIRPDBOY_REPO="https://github.com/sirpdboy"
 for plugin in luci-app-partexp luci-app-advanced luci-app-poweroffdevice; do
   rm -rf "$CUSTOM_PLUGINS_DIR/$plugin"
-  if git clone --depth 1 $SIRPDBOY_REPO/$plugin "$CUSTOM_PLUGINS_DIR/$plugin"; then
-    log_success "$plugin 克隆成功"
+  if git clone --depth 1 "$SIRPDBOY_REPO/$plugin" "$CUSTOM_PLUGINS_DIR/$plugin"; then
+    log_success "$plugin克隆成功"
   else
-    log_error "$plugin 克隆失敗"
+    log_error "$plugin克隆失败"
   fi
 done
 
-# -------------------- 步驟 8：集成 PassWall2 (強制更新  ) --------------------
-log_info "步驟 8：集成 PassWall2 (強制更新)..."
+# -------------------- 步骤 8：集成PassWall2(强制更新) --------------------
+log_info "步骤 8：集成PassWall2(强制更新)..."
 PW2_APP_DIR="$CUSTOM_PLUGINS_DIR/luci-app-passwall"
 PW2_PKG_DIR="$CUSTOM_PLUGINS_DIR/passwall-packages"
 rm -rf "$PW2_APP_DIR" "$PW2_PKG_DIR"
-log_info "已刪除舊的 PassWall 倉庫，準備重新克隆..."
+log_info "已删除旧的PassWall仓库，准备重新克隆..."
 if git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall.git "$PW2_APP_DIR"; then
-  log_success "PassWall 克隆成功"
+  log_success "PassWall克隆成功"
 else
-  log_error "PassWall 克隆失敗"
+  log_error "PassWall克隆失败"
 fi
 if git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall-packages.git "$PW2_PKG_DIR"; then
-  log_success "PassWall 公共依賴克隆成功"
+  log_success "PassWall公共依赖克隆成功"
 else
-  log_error "PassWall 公共依賴克隆失敗"
+  log_error "PassWall公共依赖克隆失败"
 fi
 
-# -------------------- 步驟 9：更新與安裝Feeds --------------------
-log_info "步驟 9：更新和安裝所有feeds..."
+# -------------------- 步骤 9：更新与安装Feeds --------------------
+log_info "步骤 9：更新和安装所有feeds..."
 ./scripts/feeds update -a
 ./scripts/feeds install -a
-log_success "Feeds操作完成  。"
+log_success "Feeds操作完成。"
 
-# -------------------- 步驟 10：生成初始配置文件 --------------------
-log_info "步驟 10：生成初始配置文件..."
+# -------------------- 步骤 10：修复net-snmp依赖冲突 --------------------
+log_info "步骤 10：修复net-snmp依赖冲突(二选一方案)..."
+
+# 检查net-snmp包是否存在
+if [ ! -d "$SNMP_DIR" ]; then
+    log_error "未找到net-snmp包目录: $SNMP_DIR"
+fi
+
+# 检查必要文件是否存在
+if [ ! -f "$SNMP_MAKEFILE" ]; then
+    log_error "未找到Makefile: $SNMP_MAKEFILE"
+fi
+if [ ! -f "$SNMP_CONFIG" ]; then
+    log_error "未找到Config.in: $SNMP_CONFIG"
+fi
+
+log_info "备份原始配置文件..."
+cp "$SNMP_MAKEFILE" "$SNMP_MAKEFILE.bak" || log_error "备份Makefile失败"
+cp "$SNMP_CONFIG" "$SNMP_CONFIG.bak" || log_error "备份Config.in失败"
+
+# 修改Makefile依赖规则
+log_info "修改Makefile依赖规则..."
+sed -i '/^define Package\/snmpd-ssl$/,/^endef$/ {
+    /^  DEPENDS:=/c\  DEPENDS:=+libnetsnmp-ssl +SNMP_ENABLE_SSL:libopenssl
+}' "$SNMP_MAKEFILE"
+
+sed -i '/^define Package\/snmpd-nossl$/,/^endef$/ {
+    /^  DEPENDS:=/c\  DEPENDS:=+libnetsnmp-nossl +!SNMP_ENABLE_SSL:libopenssl
+}' "$SNMP_MAKEFILE"
+
+sed -i '/^define Package\/libnetsnmp-ssl$/,/^endef$/ {
+    /^  DEPENDS:=/c\  DEPENDS:=+SNMP_ENABLE_SSL:libopenssl +SNMP_ENABLE_SSL:libcrypto
+}' "$SNMP_MAKEFILE"
+
+sed -i '/^define Package\/libnetsnmp-nossl$/,/^endef$/ {
+    /^  DEPENDS:=/c\  DEPENDS:=+!SNMP_ENABLE_SSL:libopenssl +!SNMP_ENABLE_SSL:libcrypto
+}' "$SNMP_MAKEFILE"
+
+# 修改Config.in配置选项
+log_info "修改Config.in配置选项..."
+sed -i '1i config SNMP_ENABLE_SSL\n    bool "Enable SSL support in net-snmp"\n    default n\n    help\n      Choose whether to build net-snmp with SSL support.\n      If enabled, SSL versions of libraries and tools will be built.\n      If disabled, non-SSL versions will be used.\n' "$SNMP_CONFIG"
+
+# 设置子包依赖关系
+sed -i '/^config PACKAGE_snmpd-ssl$/,/^endmenu$/ {
+    /^    depends on /c\    depends on SNMP_ENABLE_SSL
+}' "$SNMP_CONFIG"
+
+sed -i '/^config PACKAGE_snmpd-nossl$/,/^endmenu$/ {
+    /^    depends on /c\    depends on !SNMP_ENABLE_SSL
+}' "$SNMP_CONFIG"
+
+sed -i '/^config PACKAGE_libnetsnmp-ssl$/,/^endmenu$/ {
+    /^    depends on /c\    depends on SNMP_ENABLE_SSL
+}' "$SNMP_CONFIG"
+
+sed -i '/^config PACKAGE_libnetsnmp-nossl$/,/^endmenu$/ {
+    /^    depends on /c\    depends on !SNMP_ENABLE_SSL
+}' "$SNMP_CONFIG"
+
+log_success "net-snmp依赖冲突修复完成"
+
+# -------------------- 步骤 11：生成最终配置文件 --------------------
+log_info "步骤 11：生成最终配置文件..."
 CONFIG_FILE=".config.custom"
-rm -f $CONFIG_FILE
+rm -f "$CONFIG_FILE"
 
-# --- 啟用 sirpdboy 插件 ---
-echo "CONFIG_PACKAGE_luci-app-partexp=y" >> $CONFIG_FILE
-echo "CONFIG_PACKAGE_luci-app-advanced=y" >> $CONFIG_FILE
-echo "CONFIG_PACKAGE_luci-app-poweroffdevice=y" >> $CONFIG_FILE
+# 启用sirpdboy插件
+echo "CONFIG_PACKAGE_luci-app-partexp=y" >> "$CONFIG_FILE"
+echo "CONFIG_PACKAGE_luci-app-advanced=y" >> "$CONFIG_FILE"
+echo "CONFIG_PACKAGE_luci-app-poweroffdevice=y" >> "$CONFIG_FILE"
 
-# --- 啟用 PassWall2 並切換到 Shadowsocks-Rust 核心 ---
-echo "CONFIG_PACKAGE_luci-app-passwall=y" >> $CONFIG_FILE
-echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y" >> $CONFIG_FILE
-echo "# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client is not set" >> $CONFIG_FILE
+# 启用PassWall2并切换到Shadowsocks-Rust核心
+echo "CONFIG_PACKAGE_luci-app-passwall=y" >> "$CONFIG_FILE"
+echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y" >> "$CONFIG_FILE"
+echo "# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client is not set" >> "$CONFIG_FILE"
 
-# --- 啟用其他基礎依賴 ---
-echo "CONFIG_PACKAGE_kmod-ubi=y" >> $CONFIG_FILE
-echo "CONFIG_PACKAGE_kmod-ubifs=y" >> $CONFIG_FILE
-echo "CONFIG_PACKAGE_trx=y" >> $CONFIG_FILE
-echo "CONFIG_PACKAGE_kmod-ath10k-ct=y" >> $CONFIG_FILE
-echo "CONFIG_PACKAGE_ath10k-firmware-qca4019-ct=y" >> $CONFIG_FILE
-echo "CONFIG_PACKAGE_ipq-wifi-mobipromo_cm520-79f=y" >> $CONFIG_FILE
-echo "CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y" >> $CONFIG_FILE
-echo "CONFIG_TARGET_ROOTFS_NO_CHECK_SIZE=y" >> $CONFIG_FILE
+# 配置net-snmp为nossl版本
+echo "CONFIG_SNMP_ENABLE_SSL=n" >> "$CONFIG_FILE"
+echo "CONFIG_PACKAGE_libnetsnmp-nossl=y" >> "$CONFIG_FILE"
+echo "CONFIG_PACKAGE_snmpd-nossl=y" >> "$CONFIG_FILE"
+echo "# CONFIG_PACKAGE_libnetsnmp-ssl is not set" >> "$CONFIG_FILE"
+echo "# CONFIG_PACKAGE_snmpd-ssl is not set" >> "$CONFIG_FILE"
 
-cat $CONFIG_FILE >> .config
-rm -f $CONFIG_FILE
+# 启用其他基础依赖
+echo "CONFIG_PACKAGE_kmod-ubi=y" >> "$CONFIG_FILE"
+echo "CONFIG_PACKAGE_kmod-ubifs=y" >> "$CONFIG_FILE"
+echo "CONFIG_PACKAGE_trx=y" >> "$CONFIG_FILE"
+echo "CONFIG_PACKAGE_kmod-ath10k-ct=y" >> "$CONFIG_FILE"
+echo "CONFIG_PACKAGE_ath10k-firmware-qca4019-ct=y" >> "$CONFIG_FILE"
+echo "CONFIG_PACKAGE_ipq-wifi-mobipromo_cm520-79f=y" >> "$CONFIG_FILE"
+echo "CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y" >> "$CONFIG_FILE"
+echo "CONFIG_TARGET_ROOTFS_NO_CHECK_SIZE=y" >> "$CONFIG_FILE"
 
-# 第一次運行 defconfig，允許它生成包含衝突的 .config 文件
-log_info "生成包含衝突的 .config 文件..."
-make defconfig || true
-log_success "初始 .config 文件生成完畢。"
+# 合并配置并生成最终配置
+cat "$CONFIG_FILE" >> .config
+rm -f "$CONFIG_FILE"
 
-# -------------------- 步驟 11：終極裁決 - 手動修正 .config 文件 --------------------
-log_info "步驟 11：手動修正 .config 文件，強制禁用SNMP..."
-
-# 使用 sed 命令直接在 .config 文件中註釋掉所有與 net-snmp 相關的行
-sed -i -e 's/^\(CONFIG_PACKAGE_net-snmp\)/# \1/g' \
-       -e 's/^\(CONFIG_PACKAGE_snmpd\)/# \1/g' \
-       -e 's/^\(CONFIG_PACKAGE_libnetsnmp\)/# \1/g' \
-       -e 's/^\(CONFIG_PACKAGE_snmp-utils\)/# \1/g' .config
-
-log_success "已強制禁用SNMP相關包。"
-
-# -------------------- 步驟 12：基於修正後的配置進行最終更新 --------------------
-log_info "步驟 12：基於修正後的 .config 進行最終更新..."
 make defconfig
-log_success "最終配置文件生成完成。"
+log_success "最终配置文件生成完成。"
 
-log_success "所有預編譯步驟均已成功完成！準備開始編譯..."
+log_success "所有预编译步骤均已成功完成！准备开始编译..."
